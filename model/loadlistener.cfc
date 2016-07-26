@@ -7,6 +7,7 @@
       beanFactory.addAlias("alsoKnownAs", "departmentService");
       } catch (any e) {
         writeDump( beanfactory.getbeaninfo() );
+        writeDump(e);
       }
 
   }

@@ -1,8 +1,8 @@
 component {
-    variables._fw1_version = "3.5.1";
-    variables._cfmljure_version = "1.0.0";
+    variables._fw1_version      = "4.0.0-beta2";
+    variables._cfmljure_version = "1.1.0-beta2";
 /*
-	Copyright (c) 2012-2015, Sean Corfield
+	Copyright (c) 2012-2016, Sean Corfield
 
 	Licensed under the Apache License, Version 2.0 (the "License");
 	you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ component {
 	// constructor
     public any function init( string project = "", numeric timeout = 300,
                               string lein = "lein", // to allow default to be overridden
+                              string boot = "", // to allow Boot to be selected instead
                               string ns = "", any root = 0 ) {
         variables.refCache = { };
         if ( project != "" ) {
@@ -34,22 +35,32 @@ component {
             var script = "";
             var cmd = { };
             var tmpDir = "";
+            var buildType = "";
+            var buildCommand = "";
+            if ( len( boot ) ) {
+                // select Boot build tool
+                buildType = "boot";
+                buildCommand = boot & " aot show -C";
+            } else {
+                buildType = "lein";
+                buildCommand = lein & " with-profile production do clean, compile, classpath";
+            }
             if ( nixLike ) {
                 // *nix / Mac
                 tmpDir = "/tmp";
-                script = getTempFile( tmpDir, "lein" );
+                script = getTempFile( tmpDir, buildType );
                 cmd = {
                     cd = "cd", run = "/bin/sh", arg = script,
                     // make sure we are not trying to run under root account!
                     preflightCmd = "if [ `id -u` -eq 0 ]; then >&2 echo 'DO NOT RUN CFML OR CFMLJURE AS ROOT!'; exit 1; fi#nl#",
                     exitCmd = "exit 0#nl#"
                 };
-                // ensure Servlet container's options do not affect Leiningen:
-                lein = "JAVA_OPTS= " & lein;
+                // ensure Servlet container's options do not affect the build tool:
+                buildCommand = "JAVA_OPTS= " & buildCommand;
             } else {
                 // Windows
                 tmpDir = replace( javaLangSystem.getenv( "TEMP" ), chr(92), "/", "all" );
-                script = getTempFile( tmpDir, "lein" );
+                script = getTempFile( tmpDir, buildType );
                 script &= ".bat";
                 cmd = {
                     cd = "chdir", run = script, arg = "",
@@ -61,7 +72,7 @@ component {
                 script,
                 "#cmd.cd# #project#" & nl &
                     cmd.preflightCmd &
-                    "#lein# with-profile production do clean, compile, classpath" & nl &
+                    buildCommand & nl &
                     cmd.exitCmd
             );
             var classpath = "";
@@ -77,8 +88,8 @@ component {
                 if ( structKeyExists( URL, "cfmljure" ) &&
                      URL.cfmljure == "abortOnFailure" ) {
                     writeDump( var = cmd, label = "Unable to cfexecute this script" );
-                    if ( !isNull( classpath ) ) writeDump( var = classpath, label = "Leiningen stdout" );
-                    if ( !isNull( errors ) ) writeDump( var = errors, label = "Leiningen stderr" );
+                    if ( !isNull( classpath ) ) writeDump( var = classpath, label = "Build (#buildType#) stdout" );
+                    if ( !isNull( errors ) ) writeDump( var = errors, label = "Build (#buildType#) stderr" );
                     writeDump( var = e, label = "Full stack trace" );
                     abort;
                 }
@@ -147,7 +158,7 @@ component {
             this.install = this.__install;
             this.isAvailable = this.__isAvailable;
             this.read = this.__read;
-            var autoLoaded = "clojure.core";
+            var autoLoaded = "clojure.core,clojure.walk";
             if ( cfmlInteropAvailable ) {
                 variables.out.println( "Detected cfml-interop for interop" );
                 // perform the best interop we can:
@@ -157,7 +168,6 @@ component {
             } else {
                 variables.out.println( "Falling back to clojure.walk for interop" );
                 // fall back to basic interop:
-                autoLoaded = listAppend( autoLoaded, "clojure.walk" );
                 this.toCFML = this.__toCFML;
                 this.toClojure = this.__toClojure;
             }
@@ -166,7 +176,7 @@ component {
             variables._clj_root = root;
             variables._clj_ns = ns;
         } else {
-            throw "cfmljure requires the path of a Leiningen project.";
+            throw "cfmljure requires the path of a Clojure project.";
         }
         return this;
     }
@@ -357,6 +367,10 @@ component {
             throw "cfmljure cannot call that method with that many arguments.";
             break;
         }
+    }
+
+    public string function __name() {
+        return variables._clj_ns;
     }
 
     public void function __require( string ns ) {
